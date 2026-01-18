@@ -1,0 +1,566 @@
+openapi: 3.1.0
+info:
+  title: Enterprise Data Intelligence API
+  description: REST API for intelligence gathering system - articles, entities, and statistics
+  version: 1.0.0
+  contact:
+    name: API Support
+    url: https://github.com/your-org/vide-coding
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+  - url: http://backend:8000
+    description: Docker Compose internal network
+
+tags:
+  - name: articles
+    description: Article operations
+  - name: entities
+    description: Entity operations
+  - name: stats
+    description: Statistics and aggregations
+  - name: health
+    description: Health checks
+
+paths:
+  /api/articles:
+    get:
+      summary: List articles with filters and pagination
+      description: Returns paginated list of articles with optional filtering by classification, sentiment, date range
+      tags:
+        - articles
+      parameters:
+        - name: page
+          in: query
+          description: Page number (1-indexed)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Number of items per page
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: classification
+          in: query
+          description: Filter by classification type
+          required: false
+          schema:
+            type: string
+            enum:
+              - competitive_news
+              - personnel_change
+              - product_launch
+              - market_trend
+        - name: minSentiment
+          in: query
+          description: Minimum sentiment score (inclusive)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10
+        - name: maxSentiment
+          in: query
+          description: Maximum sentiment score (inclusive)
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10
+        - name: startDate
+          in: query
+          description: Start of date range filter (ISO 8601)
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          description: End of date range filter (ISO 8601)
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: search
+          in: query
+          description: Full-text search query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response with paginated articles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedArticles'
+        '400':
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/articles/{id}:
+    get:
+      summary: Get article details by ID
+      description: Returns complete article information including full content and analysis
+      tags:
+        - articles
+      parameters:
+        - name: id
+          in: path
+          description: Article MongoDB ObjectId
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{24}$'
+      responses:
+        '200':
+          description: Successful response with article details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Article'
+        '404':
+          description: Article not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/stats:
+    get:
+      summary: Get aggregated statistics
+      description: Returns dashboard statistics including total articles, classification breakdown, and average sentiment
+      tags:
+        - stats
+      responses:
+        '200':
+          description: Successful response with statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregatedStats'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/entities:
+    get:
+      summary: List unique entities with mention counts
+      description: Returns aggregated entity information across all articles
+      tags:
+        - entities
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of entities to return
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: type
+          in: query
+          description: Filter by entity type
+          required: false
+          schema:
+            type: string
+            enum:
+              - company
+              - person
+              - product
+              - technology
+      responses:
+        '200':
+          description: Successful response with entity list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entities:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EntitySummary'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/health:
+    get:
+      summary: Health check endpoint
+      description: Returns health status of the API and dependent services
+      tags:
+        - health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - healthy
+                      - degraded
+                      - unhealthy
+                  services:
+                    type: object
+                    properties:
+                      mongodb:
+                        type: string
+                        enum:
+                          - connected
+                          - disconnected
+                      llm:
+                        type: string
+                        enum:
+                          - available
+                          - unavailable
+                  timestamp:
+                    type: string
+                    format: date-time
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Entity:
+      type: object
+      required:
+        - text
+        - type
+        - mentions
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: Entity text (e.g., "NVIDIA", "Jensen Huang")
+          example: "NVIDIA"
+        type:
+          type: string
+          enum:
+            - company
+            - person
+            - product
+            - technology
+          description: Entity classification
+          example: "company"
+        mentions:
+          type: integer
+          minimum: 1
+          description: Number of mentions in the article
+          example: 5
+
+    Article:
+      type: object
+      required:
+        - id
+        - url
+        - title
+        - content
+        - publishDate
+        - source
+        - summary
+        - classification
+        - sentimentScore
+        - scrapedAt
+        - status
+      properties:
+        id:
+          type: string
+          pattern: '^[0-9a-fA-F]{24}$'
+          description: MongoDB ObjectId
+          example: "507f1f77bcf86cd799439011"
+        url:
+          type: string
+          format: uri
+          description: Source article URL
+          example: "https://nvidianews.nvidia.com/news/nvidia-announces-dgx-h200"
+        title:
+          type: string
+          description: Article title
+          example: "NVIDIA Announces New AI Supercomputer"
+        content:
+          type: string
+          description: Full article text
+          example: "NVIDIA today unveiled its latest DGX system..."
+        publishDate:
+          type: string
+          format: date-time
+          description: Publication date
+          example: "2026-01-15T10:00:00Z"
+        source:
+          type: string
+          description: Source website name
+          example: "NVIDIA Newsroom"
+        summary:
+          type: string
+          maxLength: 500
+          description: Generated summary (<100 words)
+          example: "NVIDIA launched DGX H200, a new AI supercomputer..."
+        entities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Entity'
+          description: Extracted named entities
+        classification:
+          type: string
+          enum:
+            - competitive_news
+            - personnel_change
+            - product_launch
+            - market_trend
+          description: Article category
+          example: "product_launch"
+        sentimentScore:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: Business impact sentiment (1=very negative, 10=very positive)
+          example: 9
+        scrapedAt:
+          type: string
+          format: date-time
+          description: Scraping timestamp
+          example: "2026-01-17T08:30:00Z"
+        analyzedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Analysis timestamp
+          example: "2026-01-17T08:35:00Z"
+        status:
+          type: string
+          enum:
+            - complete
+            - pending
+            - failed
+          description: Processing status
+          example: "complete"
+        metadata:
+          type: object
+          description: Additional technical metadata
+          properties:
+            scraperMethod:
+              type: string
+              enum:
+                - trafilatura
+                - playwright
+            contentTruncated:
+              type: boolean
+            processingTime:
+              type: number
+              format: float
+
+    ArticleListItem:
+      type: object
+      required:
+        - id
+        - url
+        - title
+        - summary
+        - classification
+        - sentimentScore
+        - publishDate
+        - source
+      properties:
+        id:
+          type: string
+          pattern: '^[0-9a-fA-F]{24}$'
+          example: "507f1f77bcf86cd799439011"
+        url:
+          type: string
+          format: uri
+          example: "https://nvidianews.nvidia.com/news/nvidia-announces-dgx-h200"
+        title:
+          type: string
+          example: "NVIDIA Announces New AI Supercomputer"
+        summary:
+          type: string
+          example: "NVIDIA launched DGX H200..."
+        classification:
+          type: string
+          enum:
+            - competitive_news
+            - personnel_change
+            - product_launch
+            - market_trend
+          example: "product_launch"
+        sentimentScore:
+          type: integer
+          minimum: 1
+          maximum: 10
+          example: 9
+        publishDate:
+          type: string
+          format: date-time
+          example: "2026-01-15T10:00:00Z"
+        source:
+          type: string
+          example: "NVIDIA Newsroom"
+        topEntities:
+          type: array
+          maxItems: 3
+          items:
+            type: string
+          description: Top 3 entity names for preview
+          example: ["NVIDIA", "DGX H200", "Jensen Huang"]
+
+    PaginatedArticles:
+      type: object
+      required:
+        - total
+        - page
+        - pageSize
+        - data
+      properties:
+        total:
+          type: integer
+          minimum: 0
+          description: Total number of articles matching filters
+          example: 150
+        page:
+          type: integer
+          minimum: 1
+          description: Current page number
+          example: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Number of items per page
+          example: 20
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArticleListItem'
+
+    AggregatedStats:
+      type: object
+      required:
+        - totalArticles
+        - classificationBreakdown
+        - avgSentiment
+        - lastUpdated
+      properties:
+        totalArticles:
+          type: integer
+          minimum: 0
+          description: Total articles analyzed
+          example: 150
+        classificationBreakdown:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Count per classification type
+          example:
+            product_launch: 45
+            competitive_news: 38
+            market_trend: 42
+            personnel_change: 25
+        avgSentiment:
+          type: number
+          format: float
+          minimum: 1.0
+          maximum: 10.0
+          description: Average sentiment score
+          example: 6.8
+        lastUpdated:
+          type: string
+          format: date-time
+          description: Last article analysis timestamp
+          example: "2026-01-17T10:30:00Z"
+
+    EntitySummary:
+      type: object
+      required:
+        - text
+        - type
+        - totalMentions
+        - articleCount
+        - articleIds
+      properties:
+        text:
+          type: string
+          description: Entity name
+          example: "NVIDIA"
+        type:
+          type: string
+          enum:
+            - company
+            - person
+            - product
+            - technology
+          example: "company"
+        totalMentions:
+          type: integer
+          minimum: 1
+          description: Total mentions across all articles
+          example: 127
+        articleCount:
+          type: integer
+          minimum: 1
+          description: Number of articles mentioning this entity
+          example: 45
+        articleIds:
+          type: array
+          items:
+            type: string
+            pattern: '^[0-9a-fA-F]{24}$'
+          description: List of article IDs containing this entity
+          example: ["507f1f77bcf86cd799439011", "507f1f77bcf86cd799439012"]
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: "ValidationError"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Invalid query parameter: minSentiment must be between 1 and 10"
+        details:
+          type: object
+          description: Additional error context
+          nullable: true
