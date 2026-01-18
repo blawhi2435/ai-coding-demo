@@ -13,7 +13,7 @@ class Entity(BaseModel):
     """Entity extracted from article content."""
 
     text: str = Field(..., min_length=1, description="Entity text")
-    type: Literal["company", "person", "product", "technology"] = Field(
+    type: Literal["company", "person", "product", "technology", "organization"] = Field(
         ..., description="Entity type"
     )
     mentions: int = Field(..., ge=1, description="Number of mentions in the article")
