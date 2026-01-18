@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import List, Optional
 import httpx
 import trafilatura
+from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
 from intelligence_scraper.models import ScrapedArticle
@@ -99,10 +100,8 @@ class NvidiaScraper(BaseScraper):
         Get list of article URLs from the newsroom main page.
 
         Returns:
-            List[str]: List of article URLs
+            List[str]: List of article URLs (limited to top 5)
         """
-        # Simplified implementation - returns mock URLs for now
-        # In production, this would parse the newsroom page for article links
         logger.info("Fetching article URLs from newsroom")
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -110,11 +109,35 @@ class NvidiaScraper(BaseScraper):
                 response = await client.get(self.NEWSROOM_URL)
                 response.raise_for_status()
 
-                # Parse response and extract article URLs
-                # For now, return mock URLs (would use BeautifulSoup in production)
-                return [
-                    f"{self.NEWSROOM_URL}/article-{i}" for i in range(1, 11)
-                ]
+                # Parse HTML with BeautifulSoup
+                soup = BeautifulSoup(response.text, 'lxml')
+
+                # Extract article URLs from <article> elements
+                # Each article contains: <article><h3><a href="...">
+                article_urls = []
+                articles = soup.find_all('article', limit=5)  # Get first 5 articles
+
+                for article in articles:
+                    # Find the link within the h3 tag
+                    h3 = article.find('h3')
+                    if h3:
+                        link = h3.find('a')
+                        if link and link.get('href'):
+                            url = link['href']
+                            # Handle relative URLs
+                            if url.startswith('/'):
+                                url = f"https://nvidianews.nvidia.com{url}"
+                            article_urls.append(url)
+                            logger.info(
+                                f"Found article URL",
+                                extra={"url": url, "title": link.get_text(strip=True)[:50]},
+                            )
+
+                logger.info(
+                    f"Extracted {len(article_urls)} article URLs",
+                    extra={"count": len(article_urls)},
+                )
+                return article_urls
 
             except Exception as e:
                 logger.warning(
