@@ -1,0 +1,106 @@
+version: '3.9'
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: intelligence-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./docker/init-mongo:/docker-entrypoint-initdb.d:ro
+    environment:
+      - MONGO_INITDB_DATABASE=intelligence
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - intelligence-network
+
+  llm:
+    image: ollama/ollama:latest
+    container_name: intelligence-llm
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+      - ./docker/llm-entrypoint.sh:/entrypoint.sh:ro
+    environment:
+      - OLLAMA_MODELS=/root/.ollama/models
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+    networks:
+      - intelligence-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: intelligence-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./libs:/app/libs:ro
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017/intelligence
+      - LLM_SERVICE_URL=http://llm:11434
+      - PYTHONUNBUFFERED=1
+      - ANALYZER_TIMEOUT=60
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      llm:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - intelligence-network
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    container_name: intelligence-frontend
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - intelligence-network
+
+volumes:
+  mongodb_data:
+    driver: local
+  ollama_models:
+    driver: local
+
+networks:
+  intelligence-network:
+    driver: bridge
