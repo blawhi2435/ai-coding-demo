@@ -58,7 +58,7 @@ services:
       - MONGODB_URL=mongodb://mongodb:27017/intelligence
       - LLM_SERVICE_URL=http://llm:11434
       - PYTHONUNBUFFERED=1
-      - ANALYZER_TIMEOUT=60
+      - ANALYZER_TIMEOUT=180
     depends_on:
       mongodb:
         condition: service_healthy
